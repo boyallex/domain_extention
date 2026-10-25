@@ -1,0 +1,8 @@
+character_id: sukuna
+locale: ru
+cloned_voice:
+  remote_id: moss_audio_801b27fd-d099-11f1-bf7a-5699d2bd1137
+  reference_dir: reference
+canned_dir: canned
+lines: []
+
