@@ -3,7 +3,7 @@ name: Рёмен Сукуна
 locale: ru
 theme_id: sukuna
 profile_id: sukuna
-voice_remote_id: moss_audio_801b27fd-d099-11f1-bf7a-5699d2bd1137
+voice_remote_id: a43b0ae842ee468fbed247e9296f28de
 voice_api_base_url: https://api.fish.audio
 voice_api_path: /v1/tts
 voice_model: s2.1-pro-free

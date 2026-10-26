@@ -57,7 +57,7 @@ class ClonedVoiceRepository implements IClonedVoiceRepository {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-        'TTS ${response.statusCode}: ${response.body}',
+        'TTS ${response.statusCode} reference_id=${voice.remoteId}: ${response.body}',
       );
     }
 
