@@ -7,3 +7,6 @@ voice_remote_id: a43b0ae842ee468fbed247e9296f28de
 voice_api_base_url: https://api.fish.audio
 voice_api_path: /v1/tts
 voice_model: s2.1-pro-free
+stage:
+  figure: assets/characters/sukuna/stage/figure.png
+  backdrop: assets/characters/sukuna/stage/background.png

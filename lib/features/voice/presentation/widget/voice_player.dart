@@ -1,129 +1,66 @@
-import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:domain_extention/app/theme/sukuna_theme.dart';
-import 'package:domain_extention/features/voice/presentation/widget/bytes_audio_source.dart';
+import 'package:domain_extention/features/assistant/presentation/cubit/assistant_page_cubit.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-class VoicePlayer extends StatefulWidget {
+class VoicePlayer extends StatelessWidget {
   const VoicePlayer({
     super.key,
-    required this.bytes,
-    this.autoplay = true,
+    required this.messageIndex,
   });
 
-  final Uint8List bytes;
-  final bool autoplay;
-
-  @override
-  State<VoicePlayer> createState() => _VoicePlayerState();
-}
-
-class _VoicePlayerState extends State<VoicePlayer> {
-  final AudioPlayer _player = AudioPlayer();
-  StreamSubscription<Duration>? _positionSub;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  bool _ready = false;
-  Object? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_load());
-  }
-
-  Future<void> _load() async {
-    try {
-      final duration = await _player.setAudioSource(
-        BytesAudioSource(widget.bytes),
-      );
-      _positionSub = _player.positionStream.listen((position) {
-        if (mounted) setState(() => _position = position);
-      });
-      if (!mounted) return;
-      setState(() {
-        _duration = duration ?? Duration.zero;
-        _ready = true;
-      });
-      if (widget.autoplay) await _player.play();
-    } catch (error) {
-      if (mounted) setState(() => _error = error);
-    }
-  }
-
-  @override
-  void dispose() {
-    unawaited(_positionSub?.cancel());
-    unawaited(_player.dispose());
-    super.dispose();
-  }
-
-  String _format(Duration value) {
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
+  final int messageIndex;
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
-      return Text(
-        'Плеер не открыл звук',
-        style: TextStyle(color: SukunaTheme.blood.withValues(alpha: 0.9)),
-      );
-    }
+    return BlocBuilder<AssistantPageCubit, AssistantPageState>(
+      buildWhen: (previous, current) {
+        final relevant = previous.playingMessageIndex == messageIndex ||
+            current.playingMessageIndex == messageIndex;
+        if (!relevant) {
+          return false;
+        }
+        return previous.isPlaying != current.isPlaying ||
+            previous.playbackPosition != current.playbackPosition ||
+            previous.playbackDuration != current.playbackDuration ||
+            previous.playingMessageIndex != current.playingMessageIndex;
+      },
+      builder: (context, state) {
+        final cubit = context.read<AssistantPageCubit>();
+        final mine = state.isActivePlayer(messageIndex);
+        final playing = mine && state.isPlaying;
+        final position = mine ? state.playbackPosition : Duration.zero;
+        final duration = mine ? state.playbackDuration : Duration.zero;
+        final totalMs = duration.inMilliseconds;
+        final value = totalMs == 0
+            ? 0.0
+            : (position.inMilliseconds / totalMs).clamp(0.0, 1.0);
 
-    final totalMs = _duration.inMilliseconds;
-    final value = totalMs == 0
-        ? 0.0
-        : (_position.inMilliseconds / totalMs).clamp(0.0, 1.0);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: SukunaTheme.ash,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: SukunaTheme.blood.withValues(alpha: 0.35)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 16, 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: SukunaTheme.ash,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: SukunaTheme.blood.withValues(alpha: 0.35)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 16, 8),
+            child: Row(
               children: [
-                StreamBuilder<PlayerState>(
-                  stream: _player.playerStateStream,
-                  builder: (context, snapshot) {
-                    final playing = snapshot.data?.playing ?? false;
-                    return IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: SukunaTheme.blood,
-                        foregroundColor: SukunaTheme.bone,
-                        minimumSize: const Size(48, 48),
-                      ),
-                      onPressed: !_ready
-                          ? null
-                          : () {
-                              if (playing) {
-                                unawaited(_player.pause());
-                              } else {
-                                unawaited(_player.play());
-                              }
-                            },
-                      icon: Icon(
-                        playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        size: 28,
-                      ),
-                    );
-                  },
+                IconButton.filled(
+                  style: IconButton.styleFrom(
+                    backgroundColor: SukunaTheme.blood,
+                    foregroundColor: SukunaTheme.bone,
+                    minimumSize: const Size(48, 48),
+                  ),
+                  onPressed: () => cubit.togglePlayback(messageIndex),
+                  icon: Icon(
+                    playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  onPressed: !_ready
-                      ? null
-                      : () => unawaited(_player.seek(Duration.zero)),
+                  onPressed: () => cubit.replay(messageIndex),
                   color: SukunaTheme.bone,
                   icon: const Icon(Icons.replay_rounded),
                 ),
@@ -149,17 +86,7 @@ class _VoicePlayerState extends State<VoicePlayer> {
                         ),
                         child: Slider(
                           value: value,
-                          onChanged: !_ready || totalMs == 0
-                              ? null
-                              : (next) {
-                                  unawaited(
-                                    _player.seek(
-                                      Duration(
-                                        milliseconds: (next * totalMs).round(),
-                                      ),
-                                    ),
-                                  );
-                                },
+                          onChanged: null,
                         ),
                       ),
                       Padding(
@@ -168,14 +95,14 @@ class _VoicePlayerState extends State<VoicePlayer> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              _format(_position),
+                              _format(position),
                               style: const TextStyle(
                                 color: SukunaTheme.bone,
                                 fontSize: 11,
                               ),
                             ),
                             Text(
-                              _format(_duration),
+                              _format(duration),
                               style: TextStyle(
                                 color: SukunaTheme.bone.withValues(alpha: 0.6),
                                 fontSize: 11,
@@ -189,9 +116,15 @@ class _VoicePlayerState extends State<VoicePlayer> {
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
+  }
+
+  String _format(Duration value) {
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }

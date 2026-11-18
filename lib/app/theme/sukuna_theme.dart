@@ -1,7 +1,8 @@
+import 'package:domain_extention/app/theme/glass_surface_theme.dart';
 import 'package:domain_extention/app/theme/i_character_theme.dart';
 import 'package:flutter/material.dart';
 
-class SukunaTheme implements ICharacterTheme {
+class SukunaTheme extends GlassSurfaceTheme implements ICharacterTheme {
   const SukunaTheme();
 
   @override
@@ -11,6 +12,21 @@ class SukunaTheme implements ICharacterTheme {
   static const blood = Color(0xFFB42318);
   static const bone = Color(0xFFF3E6D4);
   static const ash = Color(0xFF2A1C1C);
+
+  @override
+  Color get stageInk => ink;
+
+  @override
+  Color get stageAccent => blood;
+
+  @override
+  Color get stageBone => bone;
+
+  @override
+  Color get voiceInboundColor => bone;
+
+  @override
+  Color get voiceOutboundColor => const Color(0xFFFF4D3A);
 
   ThemeData get _base {
     final scheme = ColorScheme.fromSeed(
@@ -26,7 +42,7 @@ class SukunaTheme implements ICharacterTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: ink,
       appBarTheme: const AppBarTheme(
-        backgroundColor: ink,
+        backgroundColor: Colors.transparent,
         foregroundColor: bone,
         elevation: 0,
         centerTitle: false,

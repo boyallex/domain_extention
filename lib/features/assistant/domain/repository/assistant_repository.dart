@@ -18,25 +18,25 @@ class AssistantRepository implements IAssistantRepository {
   final http.Client _client;
 
   @override
-  Future<ChatMessage> reply({
+  Stream<String> reply({
     required String userText,
     List<ChatMessage> history = const [],
-  }) async {
+  }) async* {
     final uri = Uri.parse('${_secrets.llmBaseUrl}/chat/completions');
     final recent = history.length <= 6
         ? history
         : history.sublist(history.length - 6);
 
-    final response = await _client.post(
-      uri,
-      headers: {
+    final request = http.Request('POST', uri)
+      ..headers.addAll({
         'Authorization': 'Bearer ${_secrets.llmApiKey}',
         'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
+      })
+      ..body = jsonEncode({
         'model': _secrets.llmModel,
         'temperature': 0.7,
-        'max_tokens': 120,
+        'max_tokens': 160,
+        'stream': true,
         'messages': [
           {'role': 'system', 'content': _profile.prompt},
           ...recent.map(
@@ -44,22 +44,45 @@ class AssistantRepository implements IAssistantRepository {
           ),
           {'role': 'user', 'content': userText},
         ],
-      }),
-    );
+      });
 
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(seconds: 30));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'LLM ${response.statusCode}: ${response.body}',
-      );
+      final body = await response.stream.bytesToString();
+      throw Exception('LLM ${response.statusCode}: $body');
     }
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final choices = json['choices'] as List<dynamic>;
-    final message = choices.first['message'] as Map<String, dynamic>;
+    var text = '';
+    final lines = response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .timeout(const Duration(seconds: 30));
+    await for (final line in lines) {
+      if (!line.startsWith('data:')) {
+        continue;
+      }
+      final data = line.substring(5).trim();
+      if (data.isEmpty || data == '[DONE]') {
+        continue;
+      }
+      final json = jsonDecode(data) as Map<String, dynamic>;
+      final choices = json['choices'] as List<dynamic>?;
+      if (choices == null || choices.isEmpty) {
+        continue;
+      }
+      final delta = choices.first['delta'] as Map<String, dynamic>?;
+      final piece = delta?['content'] as String?;
+      if (piece == null || piece.isEmpty) {
+        continue;
+      }
+      text += piece;
+      yield text;
+    }
 
-    return ChatMessage(
-      role: 'assistant',
-      text: (message['content'] as String).trim(),
-    );
+    if (text.trim().isEmpty) {
+      throw Exception('LLM empty stream');
+    }
   }
 }

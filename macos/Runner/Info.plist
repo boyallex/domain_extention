@@ -28,5 +28,11 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Приложение слушает голос, чтобы персонаж мог отвечать и чтобы его можно было перебить.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Микрофон нужен для живого разговора с персонажем.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Микрофон нужен для живого разговора с персонажем.</string>
 </dict>
 </plist>

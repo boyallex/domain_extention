@@ -1,212 +1,209 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:domain_extention/app/theme/sukuna_theme.dart';
-import 'package:domain_extention/features/assistant/domain/entity/chat_message.dart';
-import 'package:domain_extention/features/assistant/domain/repository/i_assistant_repository.dart';
-import 'package:domain_extention/features/assistant/presentation/page/i_assistant_page.dart';
-import 'package:domain_extention/features/voice/domain/repository/i_cloned_voice_repository.dart';
-import 'package:domain_extention/features/voice/presentation/widget/voice_player.dart';
+import 'package:domain_extention/features/assistant/presentation/cubit/assistant_page_cubit.dart';
+import 'package:domain_extention/features/assistant/presentation/widgets/assistant_desktop_layout.dart';
+import 'package:domain_extention/features/assistant/presentation/widgets/assistant_glass_scope.dart';
+import 'package:domain_extention/features/assistant/presentation/widgets/assistant_mobile_layout.dart';
+import 'package:domain_extention/features/assistant/presentation/widgets/assistant_nav_rail.dart';
+import 'package:domain_extention/features/assistant/presentation/widgets/assistant_permission_window.dart';
+import 'package:domain_extention/features/character_stage/presentation/cubit/character_stage_cubit.dart';
+import 'package:domain_extention/features/character_stage/presentation/widget/character_stage.dart';
+import 'package:domain_extention/features/shell/presentation/layout/assistant_breakpoints.dart';
+import 'package:domain_extention/features/shell/presentation/widget/character_picker_menu.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-class AssistantPage extends StatefulWidget implements IAssistantPage {
-  const AssistantPage({
-    super.key,
-    required this.assistantRepository,
-    required this.voiceRepository,
-  });
-
-  final IAssistantRepository assistantRepository;
-  final IClonedVoiceRepository voiceRepository;
+class AssistantPage extends StatefulWidget {
+  const AssistantPage({super.key});
 
   @override
   State<AssistantPage> createState() => _AssistantPageState();
 }
 
-class _ChatLine {
-  const _ChatLine({
-    required this.role,
-    required this.text,
-    this.audio,
-    this.busy = false,
-  });
-
-  final String role;
-  final String text;
-  final Uint8List? audio;
-  final bool busy;
-}
-
-class _AssistantPageState extends State<AssistantPage> {
+class _AssistantPageState extends State<AssistantPage>
+    with WidgetsBindingObserver {
   final _input = TextEditingController();
-  final _lines = <_ChatLine>[];
-  var _sending = false;
+  final _scroll = ScrollController();
+  var _pickerOpen = false;
+  var _mobileTextMode = false;
+  var _nav = AssistantNavDestination.chat;
 
   @override
-  void dispose() {
-    _input.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
   }
 
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
-
-    setState(() {
-      _sending = true;
-      _lines.add(_ChatLine(role: 'user', text: text));
-      _lines.add(const _ChatLine(role: 'assistant', text: '', busy: true));
-      _input.clear();
-    });
-
-    try {
-      final history = _lines
-          .where((line) => !line.busy && line.text.isNotEmpty)
-          .map((line) => ChatMessage(role: line.role, text: line.text))
-          .toList();
-      if (history.isNotEmpty && history.last.role == 'user') {
-        history.removeLast();
-      }
-
-      final answer = await widget.assistantRepository.reply(
-        userText: text,
-        history: history,
-      );
-      final voice = await widget.voiceRepository.getByCharacterId('sukuna');
-      final audio = await widget.voiceRepository.speak(
-        text: answer.text,
-        voice: voice,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _lines.removeLast();
-        _lines.add(
-          _ChatLine(role: 'assistant', text: answer.text, audio: audio),
-        );
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _lines.removeLast();
-        _lines.add(_ChatLine(role: 'assistant', text: error.toString()));
-      });
-    } finally {
-      if (mounted) setState(() => _sending = false);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(context.read<AssistantPageCubit>().retryPermission());
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Сукуна'),
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _submit(AssistantPageCubit cubit) {
+    cubit.sendMessage(_input.text);
+    _input.clear();
+  }
+
+  void _showMobileMenu(BuildContext context) {
+    final theme = const SukunaTheme();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: theme.stageInk.withValues(alpha: 0.92),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(22),
+        ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _lines.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Напиши фразу — ответит голосом',
-                      style: TextStyle(color: SukunaTheme.bone),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                    itemCount: _lines.length,
-                    itemBuilder: (context, index) {
-                      return _Bubble(line: _lines[index]);
-                    },
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: Icon(Icons.home_rounded, color: theme.stageBone),
+                  title: Text(
+                    'Дом',
+                    style: TextStyle(color: theme.stageBone),
                   ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      enabled: !_sending,
-                      style: const TextStyle(color: SukunaTheme.bone),
-                      decoration: InputDecoration(
-                        hintText: 'Скажи ему что-нибудь',
-                        hintStyle: TextStyle(
-                          color: SukunaTheme.bone.withValues(alpha: 0.4),
-                        ),
-                        filled: true,
-                        fillColor: SukunaTheme.ash,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                      onSubmitted: (_) => unawaited(_send()),
-                    ),
+                  onTap: () => Navigator.pop(context),
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.desktop_windows_rounded,
+                    color: theme.stageBone,
                   ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: SukunaTheme.blood,
-                      foregroundColor: SukunaTheme.bone,
-                    ),
-                    onPressed: _sending ? null : () => unawaited(_send()),
-                    icon: _sending
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.arrow_upward_rounded),
+                  title: Text(
+                    'Дисплей',
+                    style: TextStyle(color: theme.stageBone),
                   ),
-                ],
-              ),
+                  onTap: () => Navigator.pop(context),
+                ),
+                ListTile(
+                  leading: Icon(Icons.settings_rounded, color: theme.stageBone),
+                  title: Text(
+                    'Настройки',
+                    style: TextStyle(color: theme.stageBone),
+                  ),
+                  onTap: () => Navigator.pop(context),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
-}
-
-class _Bubble extends StatelessWidget {
-  const _Bubble({required this.line});
-
-  final _ChatLine line;
 
   @override
   Widget build(BuildContext context) {
-    final mine = line.role == 'user';
+    return AssistantGlassScope(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: BlocBuilder<CharacterStageCubit, CharacterStageState>(
+          builder: (context, stage) {
+            return BlocBuilder<AssistantPageCubit, AssistantPageState>(
+              buildWhen: (previous, current) =>
+                  previous.messages != current.messages ||
+                  previous.state != current.state ||
+                  previous.partialText != current.partialText ||
+                  previous.isError != current.isError ||
+                  previous.needsPermission != current.needsPermission ||
+                  previous.hasMicrophone != current.hasMicrophone ||
+                  previous.hasSpeech != current.hasSpeech ||
+                  previous.hostedByFlutter != current.hostedByFlutter ||
+                  previous.sessionActive != current.sessionActive ||
+                  previous.isConnecting != current.isConnecting ||
+                  previous.isPlaying != current.isPlaying,
+              builder: (context, state) {
+                final cubit = context.read<AssistantPageCubit>();
+                final stageCubit = context.read<CharacterStageCubit>();
 
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: mine
-              ? DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: SukunaTheme.ash,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
+                if (state.needsPermission) {
+                  return AssistantPermissionWindow(cubit: cubit, state: state);
+                }
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CharacterStage(profile: stage.selected),
+                    SafeArea(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final desktop = AssistantBreakpoints.isDesktop(
+                            constraints.maxWidth,
+                          );
+                          if (desktop) {
+                            return AssistantDesktopLayout(
+                              state: state,
+                              characterName: stage.selected.name,
+                              avatarAsset: stage.selected.figureAsset,
+                              scrollController: _scroll,
+                              inputController: _input,
+                              navDestination: _nav,
+                              onNavSelect: (value) {
+                                setState(() => _nav = value);
+                              },
+                              onCharacterTap: () {
+                                setState(() => _pickerOpen = !_pickerOpen);
+                              },
+                              onToggleVoice: cubit.toggleDialog,
+                              onSubmit: () => _submit(cubit),
+                            );
+                          }
+
+                          return AssistantMobileLayout(
+                            state: state,
+                            characterName: stage.selected.name,
+                            avatarAsset: stage.selected.figureAsset,
+                            scrollController: _scroll,
+                            inputController: _input,
+                            textMode: _mobileTextMode,
+                            onCharacterTap: () {
+                              setState(() => _pickerOpen = !_pickerOpen);
+                            },
+                            onHomeTap: () {
+                              // Заглушка раздела «Дом» на mobile.
+                            },
+                            onToggleVoice: cubit.toggleDialog,
+                            onSubmit: () => _submit(cubit),
+                            onOpenKeyboard: () {
+                              setState(() => _mobileTextMode = true);
+                            },
+                            onCloseKeyboard: () {
+                              setState(() => _mobileTextMode = false);
+                            },
+                            onOpenMenu: () => _showMobileMenu(context),
+                          );
+                        },
+                      ),
                     ),
-                    child: Text(line.text),
-                  ),
-                )
-              : line.busy
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('Слушает...'),
-                )
-              : line.audio == null
-              ? Text(line.text)
-              : VoicePlayer(bytes: line.audio!),
+                    if (_pickerOpen)
+                      CharacterPickerMenu(
+                        currentId: stage.selected.id,
+                        catalog: stage.catalog,
+                        onSelect: stageCubit.select,
+                        onDismiss: () {
+                          setState(() => _pickerOpen = false);
+                        },
+                      ),
+                  ],
+                );
+              },
+            );
+          },
         ),
       ),
     );
